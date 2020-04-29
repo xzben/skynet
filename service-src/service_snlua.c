@@ -122,7 +122,7 @@ static int
 _launch(struct skynet_context * context, void *ud, int type, int session, uint32_t source , const void * msg, size_t sz) {
 	assert(type == 0 && session == 0);
 	struct snlua *l = ud;
-	skynet_callback(context, NULL, NULL);
+	skynet_callback(context, NULL, NULL); //清理掉了消息分发callback，等待lua层设置
 	int err = _init(l, context, msg, sz);
 	if (err) {
 		skynet_command(context, "EXIT", NULL);

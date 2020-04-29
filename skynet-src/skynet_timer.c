@@ -282,11 +282,13 @@ skynet_updatetime(void) {
 	}
 }
 
+// 获取启动时间  单位 秒
 uint32_t
 skynet_gettime_fixsec(void) {
 	return TI->starttime;
 }
 
+// 获取当前时间 单位 秒/100
 uint32_t 
 skynet_gettime(void) {
 	return TI->current;

@@ -12,13 +12,13 @@ struct hashid_node {
 
 struct hashid {
 	int hashmod;
-	int cap;
+	int cap;   // hasid_node 容量
 	int count;
-	struct hashid_node *id;
-	struct hashid_node **hash;
+	struct hashid_node *id;    // 存储  hasid_node 的数据 数组长度 == cap
+	struct hashid_node **hash; // 存储  hasdid_node* 的数组 数组长度 为  16*2^n >= cap  这里存储的指针数量是大于 cap 但是是 16*2指数大小的大小
 };
 
-static void
+static void // 初始化 hashid 结构，存储空间为 max 
 hashid_init(struct hashid *hi, int max) {
 	int i;
 	int hashcap;
@@ -38,7 +38,7 @@ hashid_init(struct hashid *hi, int max) {
 	memset(hi->hash, 0, hashcap * sizeof(struct hashid_node *));
 }
 
-static void
+static void // 清理 hashid 结构体
 hashid_clear(struct hashid *hi) {
 	skynet_free(hi->id);
 	skynet_free(hi->hash);
@@ -49,7 +49,7 @@ hashid_clear(struct hashid *hi) {
 	hi->count = 0;
 }
 
-static int
+static int //查找 id 值在hashid 表中 hashid_node 数组中的index
 hashid_lookup(struct hashid *hi, int id) {
 	int h = id & hi->hashmod;
 	struct hashid_node * c = hi->hash[h];
@@ -61,7 +61,7 @@ hashid_lookup(struct hashid *hi, int id) {
 	return -1;
 }
 
-static int
+static int  // 将id 从 hashid 表中删除
 hashid_remove(struct hashid *hi, int id) {
 	int h = id & hi->hashmod;
 	struct hashid_node * c = hi->hash[h];
@@ -88,7 +88,7 @@ _clear:
 	return c - hi->id;
 }
 
-static int
+static int  //插入id 到hashid 表中
 hashid_insert(struct hashid * hi, int id) {
 	struct hashid_node *c = NULL;
 	int i;
@@ -112,7 +112,7 @@ hashid_insert(struct hashid * hi, int id) {
 	return c - hi->id;
 }
 
-static inline int
+static inline int //判断 表是否满了
 hashid_full(struct hashid *hi) {
 	return hi->count == hi->cap;
 }

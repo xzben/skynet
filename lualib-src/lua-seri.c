@@ -34,10 +34,10 @@ struct block {
 };
 
 struct write_block {
-	struct block * head;
-	int len;
-	struct block * current;
-	int ptr;
+	struct block * head;  //链表结构的，这是链表头， 这里利用 第一个 block 的前面存储一个 int 大小的buffer 代表包头后面数据的总大小
+	int len; //当前总共存储的 数据size
+	struct block * current; //当前写入的 block 指针
+	int ptr; //配合 current 使用，代表当前 current 写入的size
 };
 
 struct read_block {
@@ -47,6 +47,7 @@ struct read_block {
 	int ptr;
 };
 
+// 新建一个block
 inline static struct block *
 blk_alloc(void) {
 	struct block *b = skynet_malloc(sizeof(struct block));
@@ -98,7 +99,8 @@ wb_init(struct write_block *wb , struct block *b) {
 	}
 }
 
-static struct block *
+//重置 block 指针结构，这里没有释放链表结构的内存，只是重置
+static struct block * 
 wb_close(struct write_block *b) {
 	b->current = b->head;
 	b->ptr = 0;
@@ -107,6 +109,7 @@ wb_close(struct write_block *b) {
 	return b->head;
 }
 
+// 释放写block的内存
 static void
 wb_free(struct write_block *wb) {
 	struct block *blk = wb->head;
@@ -576,6 +579,8 @@ _seri(lua_State *L, struct block *b) {
 	lua_pushinteger(L, sz);
 }
 
+// 将序列化的 lua 参数字符串 反解开成一个一个的lua 参数返回
+// param 可以为一个 _luaseri_pack 返回的 str_userdata,str_len 或 lpackstring 返回的 lstring
 int
 _luaseri_unpack(lua_State *L) {
 	if (lua_isnoneornil(L,1)) {
@@ -619,6 +624,10 @@ _luaseri_unpack(lua_State *L) {
 	return lua_gettop(L);
 }
 
+// 将传递进来的lua 参数按指定的格式序列化成一个二进制字符串
+// 返回lua 的值为 一个 序列化好的 字符串的 userdata，字符串的长度
+// params  若干个lua值
+// retrurn str_userdata, str_len
 int
 _luaseri_pack(lua_State *L) {
 	struct write_block wb;

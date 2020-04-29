@@ -1,3 +1,7 @@
+/*
+	skynet 错误日志的输出接口实现
+
+*/
 #include "skynet.h"
 #include "skynet_handle.h"
 #include "skynet_mq.h"
@@ -10,7 +14,7 @@
 
 #define LOG_MESSAGE_SIZE 256
 
-void 
+void //输出日志到指定的日志文件。这里的日志文件是 config 配置的 logger 指定的
 skynet_error(struct skynet_context * context, const char *msg, ...) {
 	static uint32_t logger = 0;
 	if (logger == 0) {

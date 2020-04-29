@@ -21,8 +21,8 @@
 #define PTYPE_RESERVED_LUA 10
 #define PTYPE_RESERVED_SNAX 11
 
-#define PTYPE_TAG_DONTCOPY 0x10000
-#define PTYPE_TAG_ALLOCSESSION 0x20000
+#define PTYPE_TAG_DONTCOPY 0x10000			// 消息传递时需要 copy data参数
+#define PTYPE_TAG_ALLOCSESSION 0x20000      // 消息传递时 如果没有设置session id 则需要生成一个
 
 struct skynet_context;
 

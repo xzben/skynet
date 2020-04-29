@@ -211,12 +211,14 @@ bootstrap(struct skynet_context * logger, const char * cmdline) {
 
 void 
 skynet_start(struct skynet_config * config) {
-	if (config->daemon) {
+	if (config->daemon) {  //如果需要后台运行则，存储进程pid信息
 		if (daemon_init(config->daemon)) {
 			exit(1);
 		}
 	}
+	// 节点 id 初始化  skynet harbor 分布式架构中，每个节点都有自己的id
 	skynet_harbor_init(config->harbor);
+	//
 	skynet_handle_init(config->harbor);
 	skynet_mq_init();
 	skynet_module_init(config->module_path);
@@ -228,9 +230,11 @@ skynet_start(struct skynet_config * config) {
 		fprintf(stderr, "Can't launch logger service\n");
 		exit(1);
 	}
-
+	//启动 main 文件对应的服务，启动服务
 	bootstrap(ctx, config->bootstrap);
 
+
+	//开启节点的工作线程
 	_start(config->thread);
 	skynet_socket_free();
 	if (config->daemon) {

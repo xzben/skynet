@@ -1,3 +1,6 @@
+/*
+*    skynet 的运行环境变量存储结构
+*/
 #include "skynet.h"
 #include "skynet_env.h"
 
@@ -46,7 +49,7 @@ skynet_setenv(const char *key, const char *value) {
 	UNLOCK(E)
 }
 
-void
+void //初始化
 skynet_env_init() {
 	E = skynet_malloc(sizeof(*E));
 	E->lock = 0;

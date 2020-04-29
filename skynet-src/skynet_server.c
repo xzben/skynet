@@ -35,17 +35,17 @@
 #endif
 
 struct skynet_context {
-	void * instance;
-	struct skynet_module * mod;
-	uint32_t handle;
-	int ref;
-	char result[32];
-	void * cb_ud;
-	skynet_cb cb;
-	int session_id;
-	struct message_queue *queue;
-	bool init;
-	bool endless;
+	void * instance; //当前服务对象指针
+	struct skynet_module * mod; //服务所属模块
+	uint32_t handle; //服务id
+	int ref; //引用数量
+	char result[32];  // 用于操作 服务时的cmd命令存储返回值用
+	void * cb_ud; // 服务消息处理回调函数的 user data
+	skynet_cb cb; // 服务消息处理回调函数
+	int session_id;//服务的消息会话id
+	struct message_queue *queue; //服务的消息队列
+	bool init;   //服务对象是否已经初始化过
+ 	bool endless; // 服务是否进入死循环卡死状态
 
 	CHECKCALLING_DECL
 };
@@ -54,27 +54,27 @@ struct skynet_node {
 	int total;
 	int init;
 	uint32_t monitor_exit;
-	pthread_key_t handle_key;
+	pthread_key_t handle_key;  //线程存贮key， 每个线程可以用次key设置自己私有的数据，并随时获取
 };
 
 static struct skynet_node G_NODE;
 
-int 
+int //当前总共多少个 服务
 skynet_context_total() {
 	return G_NODE.total;
 }
 
-static void
+static void  //增加当前注册服务数量
 context_inc() {
 	__sync_fetch_and_add(&G_NODE.total,1);
 }
 
-static void
+static void // 减少当前注册服务数量
 context_dec() {
 	__sync_fetch_and_sub(&G_NODE.total,1);
 }
 
-uint32_t 
+uint32_t //当前线程运行的服务handle
 skynet_current_handle(void) {
 	if (G_NODE.init) {
 		void * handle = pthread_getspecific(G_NODE.handle_key);
@@ -85,7 +85,7 @@ skynet_current_handle(void) {
 	}
 }
 
-static void
+static void  //将 id 转换成 16 进制的字符串
 id_to_hex(char * str, uint32_t id) {
 	int i;
 	static char hex[16] = { '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F' };
@@ -100,7 +100,7 @@ struct drop_t {
 	uint32_t handle;
 };
 
-static void
+static void //删除一个消息，并通知发送消息的服务
 drop_message(struct skynet_message *msg, void *ud) {
 	struct drop_t *d = ud;
 	skynet_free(msg->data);
@@ -110,7 +110,7 @@ drop_message(struct skynet_message *msg, void *ud) {
 	skynet_send(NULL, source, msg->source, PTYPE_ERROR, 0, NULL, 0);
 }
 
-struct skynet_context * 
+struct skynet_context * //新建一个 name 的服务，新建的服务消息队列会立马进入一次全局消息队列。
 skynet_context_new(const char * name, const char *param) {
 	struct skynet_module * mod = skynet_module_query(name);
 
@@ -125,7 +125,7 @@ skynet_context_new(const char * name, const char *param) {
 
 	ctx->mod = mod;
 	ctx->instance = inst;
-	ctx->ref = 2;
+	ctx->ref = 2; // 两次引用 一次 是 服务管理器用，一次是为了确保下面操作服务对象时，不会因为多线程操作导致对象意外释放
 	ctx->cb = NULL;
 	ctx->cb_ud = NULL;
 	ctx->session_id = 0;
@@ -153,27 +153,27 @@ skynet_context_new(const char * name, const char *param) {
 	} else {
 		skynet_error(ctx, "FAILED launch %s", name);
 		uint32_t handle = ctx->handle;
-		skynet_context_release(ctx);
-		skynet_handle_retire(handle);
+		skynet_context_release(ctx);  // 主动见一次引用
+		skynet_handle_retire(handle); // 清除handle 减一次引用 此时context就被释放了
 		struct drop_t d = { handle };
 		skynet_mq_release(queue, drop_message, &d);
 		return NULL;
 	}
 }
 
-int
+int //生成服务器的新通信会话id
 skynet_context_newsession(struct skynet_context *ctx) {
 	// session always be a positive number
 	int session = (++ctx->session_id) & 0x7fffffff;
 	return session;
 }
 
-void 
+void //增加一次服务的引用计数
 skynet_context_grab(struct skynet_context *ctx) {
 	__sync_add_and_fetch(&ctx->ref,1);
 }
 
-static void 
+static void //删除服务对象
 delete_context(struct skynet_context *ctx) {
 	skynet_module_instance_release(ctx->mod, ctx->instance);
 	skynet_mq_mark_release(ctx->queue);
@@ -181,7 +181,7 @@ delete_context(struct skynet_context *ctx) {
 	context_dec();
 }
 
-struct skynet_context * 
+struct skynet_context * //减少一次服务的持有引用，如果引用为0则释放
 skynet_context_release(struct skynet_context *ctx) {
 	if (__sync_sub_and_fetch(&ctx->ref,1) == 0) {
 		delete_context(ctx);
@@ -190,7 +190,7 @@ skynet_context_release(struct skynet_context *ctx) {
 	return ctx;
 }
 
-int
+int//给服务压入一个消息
 skynet_context_push(uint32_t handle, struct skynet_message *message) {
 	struct skynet_context * ctx = skynet_handle_grab(handle);
 	if (ctx == NULL) {
@@ -212,7 +212,7 @@ skynet_context_endless(uint32_t handle) {
 	skynet_context_release(ctx);
 }
 
-int 
+int // 判断是否是远程节点、这个适合 harbor 集群方式
 skynet_isremote(struct skynet_context * ctx, uint32_t handle, int * harbor) {
 	int ret = skynet_harbor_message_isremote(handle);
 	if (harbor) {
@@ -244,6 +244,10 @@ skynet_context_dispatchall(struct skynet_context * ctx) {
 	}
 }
 
+
+//
+// 这里暴露给工作线程使用的接口
+// 每次 取出全局队列中一个服务的消息队列处理 若干个消息，具体数量根据工作线程的权重决定，最少执行一次最多执行 消息队列数量的一半
 struct message_queue * 
 skynet_context_message_dispatch(struct skynet_monitor *sm, struct message_queue *q, int weight) {
 	if (q == NULL) {
@@ -308,6 +312,10 @@ copy_name(char name[GLOBALNAME_LENGTH], const char * addr) {
 	}
 }
 
+//根据name查找 服务handle 
+// 两种name格式
+// 1、 : 开头则代表名字值就是一个 16进制的handle值，直接转换成对应的数值返回
+// 2、 . 开头代表是服务名字，则查找名字并返回对应handle 找不到则返回 0
 uint32_t 
 skynet_queryname(struct skynet_context * context, const char * name) {
 	switch(name[0]) {
@@ -320,6 +328,10 @@ skynet_queryname(struct skynet_context * context, const char * name) {
 	return 0;
 }
 
+
+// 关闭退出服务
+// handle == 0 代表退出调用接口的服务，否则代表退出对应的服务
+// 此操作会将退出服务的消息通知给 监视退出的服务
 static void
 handle_exit(struct skynet_context * context, uint32_t handle) {
 	if (handle == 0) {
@@ -341,16 +353,22 @@ struct command_func {
 	const char * (*func)(struct skynet_context * context, const char * param);
 };
 
+
+// 添加定时器
+// 返回定时器的sessionid
 static const char *
 cmd_timeout(struct skynet_context * context, const char * param) {
 	char * session_ptr = NULL;
-	int ti = strtol(param, &session_ptr, 10);
+	int ti = strtol(param, &session_ptr, 10); // 定时 时间
 	int session = skynet_context_newsession(context);
 	skynet_timeout(context->handle, ti, session);
 	sprintf(context->result, "%d", session);
 	return context->result;
 }
 
+// 注册服务名字
+// 如果 param 为空 返回服务本身的 handle值
+// 如果 param 以 .开头则注册 handle 的映射 name
 static const char *
 cmd_reg(struct skynet_context * context, const char * param) {
 	if (param == NULL || param[0] == '\0') {
@@ -364,6 +382,7 @@ cmd_reg(struct skynet_context * context, const char * param) {
 	}
 }
 
+//查询指定 名字的的handle值
 static const char *
 cmd_query(struct skynet_context * context, const char * param) {
 	if (param[0] == '.') {
@@ -376,6 +395,7 @@ cmd_query(struct skynet_context * context, const char * param) {
 	return NULL;
 }
 
+// 给指定的 handle 设定名字 param = ".name :FFFF" 
 static const char *
 cmd_name(struct skynet_context * context, const char * param) {
 	int size = strlen(param);
@@ -397,6 +417,7 @@ cmd_name(struct skynet_context * context, const char * param) {
 	return NULL;
 }
 
+//返回当前时间
 static const char *
 cmd_now(struct skynet_context * context, const char * param) {
 	uint32_t ti = skynet_gettime();
@@ -404,12 +425,17 @@ cmd_now(struct skynet_context * context, const char * param) {
 	return context->result;
 }
 
+
+// 退出服务
 static const char *
 cmd_exit(struct skynet_context * context, const char * param) {
 	handle_exit(context, 0);
 	return NULL;
 }
 
+
+// 退出指定 handle 值的服务
+// param 取值可以为 :开头的16进制handle值 也可以为 .开头的名字
 static const char *
 cmd_kill(struct skynet_context * context, const char * param) {
 	uint32_t handle = 0;
@@ -427,6 +453,8 @@ cmd_kill(struct skynet_context * context, const char * param) {
 	return NULL;
 }
 
+//创建指定 模块名字的服务， param 由 modoule名字和 对应初始化参数组成
+//返回创建服务handle
 static const char *
 cmd_launch(struct skynet_context * context, const char * param) {
 	size_t sz = strlen(param);
@@ -444,11 +472,13 @@ cmd_launch(struct skynet_context * context, const char * param) {
 	}
 }
 
+//获取指定名字的系统参数值
 static const char *
 cmd_getenv(struct skynet_context * context, const char * param) {
 	return skynet_getenv(param);
 }
 
+//设置指定 环境变量 name = value
 static const char *
 cmd_setenv(struct skynet_context * context, const char * param) {
 	size_t sz = strlen(param);
@@ -467,6 +497,7 @@ cmd_setenv(struct skynet_context * context, const char * param) {
 	return NULL;
 }
 
+//获取系统的开始时间
 static const char *
 cmd_starttime(struct skynet_context * context, const char * param) {
 	uint32_t sec = skynet_gettime_fixsec();
@@ -484,12 +515,16 @@ cmd_endless(struct skynet_context * context, const char * param) {
 	return NULL;
 }
 
+// 关闭整个进程
 static const char *
 cmd_abort(struct skynet_context * context, const char * param) {
 	skynet_handle_retireall();
 	return NULL;
 }
 
+// 设置 或者 获取  退出监听服务器的 handle
+// 当 param 为空则为 获取当前的 退出监听服的 handle
+// 当 param 为一个 handle值或name时 则设置当前 服务退出监听服为此服
 static const char *
 cmd_monitor(struct skynet_context * context, const char * param) {
 	uint32_t handle=0;
@@ -514,6 +549,7 @@ cmd_monitor(struct skynet_context * context, const char * param) {
 	return NULL;
 }
 
+// 获取当前服务消息队列大小
 static const char *
 cmd_mqlen(struct skynet_context * context, const char * param) {
 	int len = skynet_mq_length(context->queue);
@@ -540,6 +576,8 @@ static struct command_func cmd_funcs[] = {
 	{ NULL, NULL },
 };
 
+
+// 统一处理 命令格式任务
 const char * 
 skynet_command(struct skynet_context * context, const char * cmd , const char * param) {
 	struct command_func * method = &cmd_funcs[0];
@@ -553,6 +591,12 @@ skynet_command(struct skynet_context * context, const char * cmd , const char * 
 	return NULL;
 }
 
+
+// 对发送的消息参数做统一过滤处理
+// 1、检测 data 是否需要 copy
+// 2、检测 是否要生成 session id
+// 3、将 发送的消息类型 与 消息 size 合并成 一个字段、 也就是传输过程中 message 的 sz 搞两个字节为type 低6个字节为数据内容 
+//  从上可知我们 服务之间消息传递的最大消息大小为 0xFFFFFF = 16777215 = 15Mb
 static void
 _filter_args(struct skynet_context * context, int type, int *session, void ** data, size_t * sz) {
 	int needcopy = !(type & PTYPE_TAG_DONTCOPY);
@@ -574,6 +618,8 @@ _filter_args(struct skynet_context * context, int type, int *session, void ** da
 	*sz |= type << HANDLE_REMOTE_SHIFT;
 }
 
+
+// 发送消息  source 发送给 destination
 int
 skynet_send(struct skynet_context * context, uint32_t source, uint32_t destination , int type, int session, void * data, size_t sz) {
 	if ((sz & HANDLE_MASK) != sz) {
@@ -590,7 +636,7 @@ skynet_send(struct skynet_context * context, uint32_t source, uint32_t destinati
 	if (destination == 0) {
 		return session;
 	}
-	if (skynet_harbor_message_isremote(destination)) {
+	if (skynet_harbor_message_isremote(destination)) { // harbor 分布式部署格式，会根据 handleid 的高两位识别是否为本地节点消息，如果不是则发送个 REMOTE 服务发给其它节点
 		struct remote_message * rmsg = skynet_malloc(sizeof(*rmsg));
 		rmsg->destination.handle = destination;
 		rmsg->message = data;
@@ -611,6 +657,8 @@ skynet_send(struct skynet_context * context, uint32_t source, uint32_t destinati
 	return session;
 }
 
+// 根据服务名字 发送消息
+// 这里的名字 支持 16进制handle值，.开头的本地服务  或者全局服务名字
 int
 skynet_sendname(struct skynet_context * context, const char * addr , int type, int session, void * data, size_t sz) {
 	uint32_t source = context->handle;
@@ -668,7 +716,7 @@ skynet_context_send(struct skynet_context * ctx, void * msg, size_t sz, uint32_t
 	skynet_mq_push(ctx->queue, &smsg);
 }
 
-void 
+void
 skynet_globalinit(void) {
 	G_NODE.total = 0;
 	G_NODE.monitor_exit = 0;

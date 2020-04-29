@@ -1,3 +1,8 @@
+/*
+	skynet 后台运行模式的情况下，相关将当前运行的进程的pid 存储到文件，相关操作的实现文件
+
+*/
+
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>

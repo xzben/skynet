@@ -14,13 +14,13 @@ coroutine.yield = profile.yield
 local proto = {}
 local skynet = {
 	-- read skynet.h
-	PTYPE_TEXT = 0,
-	PTYPE_RESPONSE = 1,
+	PTYPE_TEXT = 0, 	  -- 
+	PTYPE_RESPONSE = 1,   -- 普通的消息通信，大部分消息为此类型, 定时器消息
 	PTYPE_MULTICAST = 2,
 	PTYPE_CLIENT = 3,
 	PTYPE_SYSTEM = 4,
 	PTYPE_HARBOR = 5,
-	PTYPE_SOCKET = 6,
+	PTYPE_SOCKET = 6,    -- socket 网络消息
 	PTYPE_ERROR = 7,
 	PTYPE_QUEUE = 8,	-- use in deprecated mqueue, use skynet.queue instead
 	PTYPE_DEBUG = 9,
@@ -260,7 +260,7 @@ function skynet.exit()
 		local address = session_coroutine_address[co]
 		local self = skynet.self()
 		if session~=0 and address then
-			skynet.redirect(address, self, "error", session, "")
+			skynet.redirect(address, self, "error", session, "")  --将未处理完的消息通知原服务器，防止调起访问服务器一直等待卡主
 		end
 	end
 	c.command("EXIT")
@@ -301,10 +301,10 @@ skynet.redirect = function(dest,source,typename,...)
 	return c.redirect(dest, source, proto[typename].id, ...)
 end
 
-skynet.pack = assert(c.pack)
-skynet.packstring = assert(c.packstring)
-skynet.unpack = assert(c.unpack)
-skynet.tostring = assert(c.tostring)
+skynet.pack = assert(c.pack)  -- 与 skynet.unpack 为对应的 序列化与反序列化 lua参数，pack 返回的是一个userdata，sz
+skynet.packstring = assert(c.packstring)  -- 与 skynet.unpack 为对应的 序列化与反序列化, 但是这个接口不想 skynet.pack 返回的是 lstring 的结果
+skynet.unpack = assert(c.unpack)  -- 将 skynet.pack/skynet.packstring 的序列化值反序列化成 lua 参数
+skynet.tostring = assert(c.tostring) -- 将 skynet.pack 返回的 str_userdata,str_len 转换成 lstring 
 
 local function yield_call(service, session)
 	watching_session[session] = service

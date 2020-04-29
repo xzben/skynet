@@ -49,7 +49,7 @@ optstring(const char *key,const char * opt) {
 	return str;
 }
 
-static void
+static void //将 启动config中的配置信息用 env 结构存储起来
 _init_env(lua_State *L) {
 	lua_pushglobaltable(L);
 	lua_pushnil(L);  /* first key */
@@ -89,10 +89,10 @@ main(int argc, char *argv[]) {
 	if (argc > 1) {
 		config_file = argv[1];
 	}
-	skynet_globalinit();
-	skynet_env_init();
+	skynet_globalinit(); //初始化全局 节点对象
+	skynet_env_init(); //初始化 全局配置表节点对象
 
-	sigign();
+	sigign(); //注册信号处理方式，具体干啥还有待了解
 
 	struct skynet_config config;
 
@@ -108,7 +108,7 @@ main(int argc, char *argv[]) {
 		lua_close(L);
 		return 1;
 	} 
-	_init_env(L);
+	_init_env(L); //将配置信息存储到 env 中
 
 	config.thread =  optint("thread",8);
 	config.module_path = optstring("cpath","./cservice/?.so");

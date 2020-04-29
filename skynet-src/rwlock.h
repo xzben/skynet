@@ -1,3 +1,7 @@
+/*
+	原子操作实现的 读写锁
+
+*/
 #ifndef _RWLOCK_H_
 #define _RWLOCK_H_
 

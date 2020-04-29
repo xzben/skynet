@@ -1,3 +1,7 @@
+/*
+*   c 外部库 管理模块，这个模块主要用于方便扩展 外部自定义的 服务实现
+*   这里需要注意的是 库对象存储空间 只有 32  
+*/
 #include "skynet.h"
 
 #include "skynet_module.h"
@@ -20,7 +24,7 @@ struct modules {
 
 static struct modules * M = NULL;
 
-static void *
+static void * //打开 模块对应的动态库，并返回打开的动态库句柄
 _try_open(struct modules *m, const char * name) {
 	const char *l;
 	const char * path = m->path;
@@ -61,6 +65,8 @@ _try_open(struct modules *m, const char * name) {
 	return dl;
 }
 
+
+// 在当前注册的 库中查找 name 的库
 static struct skynet_module * 
 _query(const char * name) {
 	int i;
@@ -72,7 +78,7 @@ _query(const char * name) {
 	return NULL;
 }
 
-static int
+static int // 初始化 库的三个关键接口， create init release
 _open_sym(struct skynet_module *mod) {
 	size_t name_size = strlen(mod->name);
 	char tmp[name_size + 9]; // create/init/release , longest name is release (7)
@@ -87,7 +93,7 @@ _open_sym(struct skynet_module *mod) {
 	return mod->init == NULL;
 }
 
-struct skynet_module * 
+struct skynet_module * //对外暴露的查找name对应的的库 module，这个接口对比 qurey 它除了查找已经存在的库，还会去查找打开name的库，并初始化对应的必要接口
 skynet_module_query(const char * name) {
 	struct skynet_module * result = _query(name);
 	if (result)
@@ -117,19 +123,19 @@ skynet_module_query(const char * name) {
 	return result;
 }
 
-void 
+void // 将 module 插入管理表中
 skynet_module_insert(struct skynet_module *mod) {
 	while(__sync_lock_test_and_set(&M->lock,1)) {}
 
 	struct skynet_module * m = _query(mod->name);
-	assert(m == NULL && M->count < MAX_MODULE_TYPE);
+	assert(m == NULL && M->count < MAX_MODULE_TYPE); // 这里是为了确保这里insert的库没有加入过，避免重复插入
 	int index = M->count;
 	M->m[index] = *mod;
 	++M->count;
 	__sync_lock_release(&M->lock);
 }
 
-void * 
+void * //创建create外部库的对象
 skynet_module_instance_create(struct skynet_module *m) {
 	if (m->create) {
 		return m->create();
@@ -138,19 +144,19 @@ skynet_module_instance_create(struct skynet_module *m) {
 	}
 }
 
-int
+int  //初始化init外部库的对象
 skynet_module_instance_init(struct skynet_module *m, void * inst, struct skynet_context *ctx, const char * parm) {
 	return m->init(inst, ctx, parm);
 }
 
-void 
+void  //释放 release 外部库的对象
 skynet_module_instance_release(struct skynet_module *m, void *inst) {
 	if (m->release) {
 		m->release(inst);
 	}
 }
 
-void 
+void //初始化库管理表， path 为 c 库的搜索path配置，
 skynet_module_init(const char *path) {
 	struct modules *m = skynet_malloc(sizeof(*m));
 	m->count = 0;

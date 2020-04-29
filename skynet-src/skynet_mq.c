@@ -1,3 +1,7 @@
+/*
+*	消息队列模块
+*/
+
 #include "skynet.h"
 #include "skynet_mq.h"
 #include "skynet_handle.h"
@@ -9,26 +13,28 @@
 #include <stdbool.h>
 
 #define DEFAULT_QUEUE_SIZE 64
-#define MAX_GLOBAL_MQ 0x10000
+#define MAX_GLOBAL_MQ 0x10000   //65536
 
 // 0 means mq is not in global mq.
 // 1 means mq is in global mq , or the message is dispatching.
 
 #define MQ_IN_GLOBAL 1
 
-struct message_queue {
-	uint32_t handle;
-	int cap;
+struct message_queue {  // 消息队列，这个是第二级队列，每个服务拥有(且唯一拥有一个)
+	uint32_t handle;  // 所属服务的handle
+	int cap;  // 容量
 	int head;
 	int tail;
 	int lock;
 	int release;
-	int in_global;
+	int in_global; // 很关键的一个标记
 	struct skynet_message *queue;
 	struct message_queue *next;
 };
 
-struct global_queue {
+// 全局消息队列，这个一级队列，全局的，消息直接存入服务的消息队列中，然后再将整个队列压入全局队列，然后工作线程从全局队列取二级队列，然后再从二级队列中消耗消息，这个过程二级队列只会在全局队列中
+// 有一份，这里是通过 message_queue 的in_global 控制的，这样做的好处就是每个服务的消息保证了只会在一个线程中处理，那么处理消息的逻辑就没有了多线程的竞争问题
+struct global_queue { 
 	uint32_t head;
 	uint32_t tail;
 	struct message_queue ** queue;
@@ -44,7 +50,7 @@ static struct global_queue *Q = NULL;
 
 #define GP(p) ((p) % MAX_GLOBAL_MQ)
 
-void 
+void //向全局队列中插入二级消息队列
 skynet_globalmq_push(struct message_queue * queue) {
 	struct global_queue *q= Q;
 
@@ -103,6 +109,8 @@ skynet_globalmq_pop() {
 	return mq;
 }
 
+
+//创建一个二级消息队列 message_queue 并制定所属的服务handle
 struct message_queue * 
 skynet_mq_create(uint32_t handle) {
 	struct message_queue *q = skynet_malloc(sizeof(*q));
@@ -122,6 +130,7 @@ skynet_mq_create(uint32_t handle) {
 	return q;
 }
 
+//释放一个二级队列
 static void 
 _release(struct message_queue *q) {
 	assert(q->next == NULL);
@@ -129,12 +138,12 @@ _release(struct message_queue *q) {
 	skynet_free(q);
 }
 
-uint32_t 
+uint32_t // 获取 消息队列所属的 服务handle
 skynet_mq_handle(struct message_queue *q) {
 	return q->handle;
 }
 
-int
+int//获取 消息队列中消息的 size
 skynet_mq_length(struct message_queue *q) {
 	int head, tail,cap;
 
@@ -150,7 +159,9 @@ skynet_mq_length(struct message_queue *q) {
 	return tail + cap - head;
 }
 
-int
+//从二级队列中取出一个消息，如果没有消息可读则将二级队列的全局队列标记清除
+// 如果 ret = 1 代表队列空了  ret = 0 代表还有内容
+int 
 skynet_mq_pop(struct message_queue *q, struct skynet_message *message) {
 	int ret = 1;
 	LOCK(q)
@@ -172,7 +183,7 @@ skynet_mq_pop(struct message_queue *q, struct skynet_message *message) {
 	return ret;
 }
 
-static void
+static void //扩展二级队列的大小，扩展规则为容量*2
 expand_queue(struct message_queue *q) {
 	struct skynet_message *new_queue = skynet_malloc(sizeof(struct skynet_message) * q->cap * 2);
 	int i;
@@ -187,7 +198,7 @@ expand_queue(struct message_queue *q) {
 	q->queue = new_queue;
 }
 
-void 
+void //向二级队列中插入消息，如果插入过程中队列没空间了则扩展，如果队列当前不在全局队列中则加入全局队列
 skynet_mq_push(struct message_queue *q, struct skynet_message *message) {
 	assert(message);
 	LOCK(q)
@@ -209,7 +220,7 @@ skynet_mq_push(struct message_queue *q, struct skynet_message *message) {
 	UNLOCK(q)
 }
 
-void 
+void //初始化全局队列结构体
 skynet_mq_init() {
 	struct global_queue *q = skynet_malloc(sizeof(*q));
 	memset(q,0,sizeof(*q));
@@ -218,6 +229,8 @@ skynet_mq_init() {
 	Q=q;
 }
 
+//将二级队列标记成释放状态，并压入全局队列中，等待工作线程来处理释放。
+//这里不能直接释放，是因为线程竞争问题，统一由工作线程来处理能保证线程安全的处理这个对象
 void 
 skynet_mq_mark_release(struct message_queue *q) {
 	LOCK(q)
@@ -229,7 +242,7 @@ skynet_mq_mark_release(struct message_queue *q) {
 	UNLOCK(q)
 }
 
-static void
+static void //释放二级队列中的消息，并在释放钱通过drop函数回调做必要的操作
 _drop_queue(struct message_queue *q, message_drop drop_func, void *ud) {
 	struct skynet_message msg;
 	while(!skynet_mq_pop(q, &msg)) {
@@ -238,7 +251,7 @@ _drop_queue(struct message_queue *q, message_drop drop_func, void *ud) {
 	_release(q);
 }
 
-void 
+void //释放二级队列，如果它被标记成 release状态的话。并且可以设置删除消息前的回调接口
 skynet_mq_release(struct message_queue *q, message_drop drop_func, void *ud) {
 	LOCK(q)
 	

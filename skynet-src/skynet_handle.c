@@ -1,3 +1,6 @@
+/*
+*   skynet 服务的管理结构体
+*/
 #include "skynet.h"
 
 #include "skynet_handle.h"
@@ -31,7 +34,7 @@ struct handle_storage {
 
 static struct handle_storage *H = NULL;
 
-uint32_t
+uint32_t  //注册新的服务到服务管理表，并返回对应的服务handle  内部实现是类似vector 的实现。 这里有个巧妙的设计，可以循环寻找使用中途被释放而空出来的位置
 skynet_handle_register(struct skynet_context *ctx) {
 	struct handle_storage *s = H;
 
@@ -40,7 +43,7 @@ skynet_handle_register(struct skynet_context *ctx) {
 	for (;;) {
 		int i;
 		for (i=0;i<s->slot_size;i++) {
-			uint32_t handle = (i+s->handle_index) & HANDLE_MASK;
+			uint32_t handle = (i+s->handle_index) & HANDLE_MASK; //这里的循环 的作用在于能充分利用掉那些中途被释放的 位置，而不是简单的用 index 递增的占位方法
 			int hash = handle & (s->slot_size-1);
 			if (s->slot[hash] == NULL) {
 				s->slot[hash] = ctx;
@@ -67,7 +70,7 @@ skynet_handle_register(struct skynet_context *ctx) {
 	}
 }
 
-void
+void //释放 handle 对应的服务
 skynet_handle_retire(uint32_t handle) {
 	struct handle_storage *s = H;
 
@@ -96,7 +99,7 @@ skynet_handle_retire(uint32_t handle) {
 	rwlock_wunlock(&s->lock);
 }
 
-void 
+void // 将当前注册的所有服务清理掉
 skynet_handle_retireall() {
 	struct handle_storage *s = H;
 	for (;;) {
@@ -116,7 +119,7 @@ skynet_handle_retireall() {
 	}
 }
 
-struct skynet_context * 
+struct skynet_context * //增加指定 handle 服务对应的引用计数
 skynet_handle_grab(uint32_t handle) {
 	struct handle_storage *s = H;
 	struct skynet_context * result = NULL;
@@ -135,7 +138,9 @@ skynet_handle_grab(uint32_t handle) {
 	return result;
 }
 
-uint32_t 
+//二分法查找 name 对应的 handle
+// 找不到则返回0
+uint32_t
 skynet_handle_findname(const char * name) {
 	struct handle_storage *s = H;
 
@@ -165,7 +170,7 @@ skynet_handle_findname(const char * name) {
 	return handle;
 }
 
-static void
+static void //插入新的 handle 名字 name映射关系到 before 位置
 _insert_name_before(struct handle_storage *s, char *name, uint32_t handle, int before) {
 	if (s->name_count >= s->name_cap) {
 		s->name_cap *= 2;
@@ -191,7 +196,9 @@ _insert_name_before(struct handle_storage *s, char *name, uint32_t handle, int b
 	s->name_count ++;
 }
 
-static const char *
+// 二分法查找插入。存储的名字是按名字字符顺序存储的
+// 返回插入的名字
+static const char * 
 _insert_name(struct handle_storage *s, const char * name, uint32_t handle) {
 	int begin = 0;
 	int end = s->name_count - 1;
@@ -215,7 +222,9 @@ _insert_name(struct handle_storage *s, const char * name, uint32_t handle) {
 	return result;
 }
 
-const char * 
+// 给指定 handle 的服务定义名字
+// 返回  定义的名字
+const char *
 skynet_handle_namehandle(uint32_t handle, const char *name) {
 	rwlock_wlock(&H->lock);
 

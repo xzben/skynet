@@ -289,6 +289,7 @@ _harbor(lua_State *L) {
 	return 2;
 }
 
+// 将lua参数序列化成 一个lstring 的类型
 static int
 lpackstring(lua_State *L) {
 	_luaseri_pack(L);

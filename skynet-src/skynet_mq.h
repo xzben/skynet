@@ -4,11 +4,11 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-struct skynet_message {
-	uint32_t source;
-	int session;
-	void * data;
-	size_t sz;
+struct skynet_message { //服务之间通信用的消息
+	uint32_t source;  // 消息发出的 服务 handle
+	int session;      // 当前会话的id
+	void * data;      // 传输的消息数据 
+	size_t sz;        // 消息数据的大小
 };
 
 struct message_queue;

@@ -1,3 +1,6 @@
+/*
+	监视器模块，主要用于监控 服务是否陷入死循环的情况
+*/
 #include "skynet.h"
 
 #include "skynet_monitor.h"
