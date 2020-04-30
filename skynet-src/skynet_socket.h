@@ -12,7 +12,7 @@ struct skynet_context;
 struct skynet_socket_message {
 	int type;
 	int id;
-	int ud;
+	int ud;  // for accept, ud is listen id ; for data, ud is size of data 
 	char * buffer;
 };
 

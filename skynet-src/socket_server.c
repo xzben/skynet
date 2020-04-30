@@ -18,102 +18,102 @@
 #define MAX_INFO 128
 // MAX_SOCKET will be 2^MAX_SOCKET_P
 #define MAX_SOCKET_P 16
-#define MAX_EVENT 64
-#define MIN_READ_BUFFER 64
-#define SOCKET_TYPE_INVALID 0
-#define SOCKET_TYPE_RESERVE 1
-#define SOCKET_TYPE_PLISTEN 2
-#define SOCKET_TYPE_LISTEN 3
-#define SOCKET_TYPE_CONNECTING 4
-#define SOCKET_TYPE_CONNECTED 5
-#define SOCKET_TYPE_HALFCLOSE 6
-#define SOCKET_TYPE_PACCEPT 7
+#define MAX_EVENT 64			  // 同时读取的网络事件最大值
+#define MIN_READ_BUFFER 64		  // socket 读取数据buffer的最小size
+#define SOCKET_TYPE_INVALID 0     // 无效的 socket
+#define SOCKET_TYPE_RESERVE 1     // 新分配的 socket 还等待指定角色状态的
+#define SOCKET_TYPE_PLISTEN 2     // 当前已经做好监听准备工作也增加好了事件监听工作，等待 start 操作就可以正式工作了，是 SOCKET_TYPE_LISTEN 的前置状态
+#define SOCKET_TYPE_LISTEN 3		// 进入了正式的监听接收客户端连接的工作了
+#define SOCKET_TYPE_CONNECTING 4     // 还在连接中的状态，发起了 连接事件但是还没建立连接成功
+#define SOCKET_TYPE_CONNECTED 5      //socket处于connect连接成功的状态
+#define SOCKET_TYPE_HALFCLOSE 6    // socket 处于半关闭状态， 代表的是我们已经发起了关闭操作，但是由于socket还有未发送完的数据，则先标记关闭状态等发送完了再关闭
+#define SOCKET_TYPE_PACCEPT 7      // accpet 接收到的连接状态，但是还没有正式进入数据通信状态，还等待业务层确认是否认证通过,再转变成 SOCKET_TYPE_CONNECTED
 #define SOCKET_TYPE_BIND 8
 
-#define MAX_SOCKET (1<<MAX_SOCKET_P)
+#define MAX_SOCKET (1<<MAX_SOCKET_P)  // 网络模块最多管理的 socket 数量
 
-#define PRIORITY_HIGH 0
-#define PRIORITY_LOW 1
+#define PRIORITY_HIGH 0    // socket 数据发送优先级定义  此值代表高优先级
+#define PRIORITY_LOW 1     // socket 数据发送优先级定义  此值代表低优先级
 
 #define HASH_ID(id) (((unsigned)id) % MAX_SOCKET)
 
-struct write_buffer {
+struct write_buffer { // 发送消息的 buffer 结构，这里能确定的是 一个 writebuffer 里的buffer是一个完整的消息包
 	struct write_buffer * next;
-	char *ptr;
-	int sz;
-	void *buffer;
+	char *ptr;  // 读buffer的指针，代表当前读取位置
+	int sz; // buffer 的 大小
+	void *buffer; // 发送的buffer
 };
 
 struct wb_list {
-	struct write_buffer * head;
-	struct write_buffer * tail;
+	struct write_buffer * head;  //发送消息的列表头  方便用于读取发送数据
+	struct write_buffer * tail; //发送消息队列的尾部，方便与插入新的发送数据
 };
 
 struct socket {
-	int fd;
-	int id;
-	int type;
-	int size;
-	int64_t wb_size;
-	uintptr_t opaque;
-	struct wb_list high;
-	struct wb_list low;
+	int fd;   // socket 句柄
+	int id;   // 在 socket server 管理器中的id
+	int type; // 当前 socket 的状态
+	int size;  // socket 读数据时 需要的起始 buffer size，默认为 MIN_READ_BUFFER = 64, 如果大小不够时会按 2 的指数增加
+	int64_t wb_size;  //当前需要发送的数据size
+	uintptr_t opaque;  // 这里 是一个透传字段，存储的是发起 网络操作的 服务handle，也就是 这个 socket 所属 服务 handle
+	struct wb_list high;  // socket 发送数据队列，高优先急的发送数据
+	struct wb_list low;   // socket 发送数据队列，低优先级的发送数据， 只有当高优先急发送完才会处理低优先级的
 };
 
 struct socket_server {
-	int recvctrl_fd;
-	int sendctrl_fd;
-	int checkctrl;
-	poll_fd event_fd;
-	int alloc_id;
-	int event_n;
-	int event_index;
-	struct event ev[MAX_EVENT];
-	struct socket slot[MAX_SOCKET];
+	int recvctrl_fd;  // 接受操作命令的句柄  是pip通道的句柄
+	int sendctrl_fd;  // 发送命令的句柄      是pip通道的句柄
+	int checkctrl;    // 标记当前是否可以处理操作命令，此标记主要用来控制优先处理我们的网络通信数据，再操作内部的处理命令
+	poll_fd event_fd; // 网络时间驱动核心
+	int alloc_id;	  // 当前分配的 socket id 计数器
+	int event_n;      // 当前接收到的网络事件数量
+	int event_index;  // 当前接受到的网络事件当前处理中的时间 索引值
+	struct event ev[MAX_EVENT];   // 网络事件 接收数组 最大同时读取 64 个事件
+	struct socket slot[MAX_SOCKET]; //当前网络层socket 连接的数组，最大 0x10000 =  65536 个连接
 	char buffer[MAX_INFO];
-	fd_set rfds;
+	fd_set rfds;  // 用于 select 查询 pip recvctrl_fd 是否可读用的 
 };
 
-struct request_open {
+struct request_open { //用于请求 connect 的
 	int id;
 	int port;
-	uintptr_t opaque;
+	uintptr_t opaque;  // 这里 是一个透传字段，存储的是发起 网络操作的 服务handle，也就是 这个 socket 所属 服务 handle
 	char host[1];
 };
 
-struct request_send {
+struct request_send { // 用于发送 数据用
 	int id;
 	int sz;
 	char * buffer;
 };
 
-struct request_close {
+struct request_close {  // 用于关闭 socket 用
 	int id;
-	uintptr_t opaque;
+	uintptr_t opaque; // 这里 是一个透传字段，存储的是发起 网络操作的 服务handle，也就是 这个 socket 所属 服务 handle
 };
 
 struct request_listen {
 	int id;
 	int fd;
-	uintptr_t opaque;
+	uintptr_t opaque; // 这里 是一个透传字段，存储的是发起 网络操作的 服务handle，也就是 这个 socket 所属 服务 handle
 	char host[1];
 };
 
-struct request_bind {
+struct request_bind {  // 绑定
 	int id;
 	int fd;
-	uintptr_t opaque;
+	uintptr_t opaque; // 这里 是一个透传字段，存储的是发起 网络操作的 服务handle，也就是 这个 socket 所属 服务 handle
 };
 
 struct request_start {
 	int id;
-	uintptr_t opaque;
+	uintptr_t opaque; // 这里 是一个透传字段，存储的是发起 网络操作的 服务handle，也就是 这个 socket 所属 服务 handle
 };
 
-struct request_setopt {
-	int id;
-	int what;
-	int value;
+struct request_setopt { // 请求设置 socket 属性
+	int id; 
+	int what;  // 要设置的属性
+	int value; // 要设置的值
 };
 
 struct request_package {
@@ -140,12 +140,17 @@ union sockaddr_all {
 #define MALLOC skynet_malloc
 #define FREE skynet_free
 
+
+// 设置 socket 举报的 keppalive 属性，作用为当socket连接对方非合法关闭链接时，能在一定时间后检测到这个状态，然后关闭本地的连接
+// 默认的间隔时间是 2小时，可以设置网络属性来控制这个时间
+// 参考文档  https://blog.csdn.net/chenlycly/article/details/51790941
 static void
 socket_keepalive(int fd) {
 	int keepalive = 1;
 	setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (void *)&keepalive , sizeof(keepalive));  
 }
 
+// 分配一个新的struct socket 并返回其id值
 static int
 reserve_id(struct socket_server *ss) {
 	int i;
@@ -175,6 +180,7 @@ clear_wb_list(struct wb_list *list) {
 	list->tail = NULL;
 }
 
+// 创建网络层的 核心对象 socket server ，包含一个 epoll 的核心句柄，一个读写pip 用于读写命令控制网络操作
 struct socket_server * 
 socket_server_create() {
 	int i;
@@ -184,7 +190,7 @@ socket_server_create() {
 		fprintf(stderr, "socket-server: create event pool failed.\n");
 		return NULL;
 	}
-	if (pipe(fd)) {
+	if (pipe(fd)) { // 创建一个 读写管道  fd[0] -> r fd[1] -> w  https://blog.csdn.net/qq_42914528/article/details/82023408
 		sp_release(efd);
 		fprintf(stderr, "socket-server: create socket pair failed.\n");
 		return NULL;
@@ -275,6 +281,8 @@ check_wb_list(struct wb_list *s) {
 	assert(s->tail == NULL);
 }
 
+// 初始化一个新分配 socket
+// 主要工作是 将 fd 套接字 加入我们的 管理器，然后根据 add 参数决定是否监听可读事件
 static struct socket *
 new_fd(struct socket_server *ss, int id, int fd, uintptr_t opaque, bool add) {
 	struct socket * s = &ss->slot[HASH_ID(id)];
@@ -317,11 +325,12 @@ open_socket(struct socket_server *ss, struct request_open * request, struct sock
 	ai_hints.ai_socktype = SOCK_STREAM;
 	ai_hints.ai_protocol = IPPROTO_TCP;
 
-	status = getaddrinfo( request->host, port, &ai_hints, &ai_list );
+	status = getaddrinfo( request->host, port, &ai_hints, &ai_list ); //获取要连接 host port 地址族列表
 	if ( status != 0 ) {
 		goto _failed;
 	}
 	int sock= -1;
+	//尝试连接返回的 地址家族，直到返回一个可以connect 成功的
 	for (ai_ptr = ai_list; ai_ptr != NULL; ai_ptr = ai_ptr->ai_next ) {
 		sock = socket( ai_ptr->ai_family, ai_ptr->ai_socktype, ai_ptr->ai_protocol );
 		if ( sock < 0 ) {
@@ -360,7 +369,7 @@ open_socket(struct socket_server *ss, struct request_open * request, struct sock
 		return SOCKET_OPEN;
 	} else {
 		ns->type = SOCKET_TYPE_CONNECTING;
-		sp_write(ss->event_fd, ns->fd, ns, true);
+		sp_write(ss->event_fd, ns->fd, ns, true); //增加 写状态的监听
 	}
 
 	freeaddrinfo( ai_list );
@@ -371,6 +380,7 @@ _failed:
 	return SOCKET_ERROR;
 }
 
+//将 wb_list 中的数据发送出去
 static int
 send_list(struct socket_server *ss, struct socket *s, struct wb_list *list, struct socket_message *result) {
 	while (list->head) {
@@ -379,9 +389,9 @@ send_list(struct socket_server *ss, struct socket *s, struct wb_list *list, stru
 			int sz = write(s->fd, tmp->ptr, tmp->sz);
 			if (sz < 0) {
 				switch(errno) {
-				case EINTR:
+				case EINTR:  //写的过程中中断了，这里我只需要重新再来过就行
 					continue;
-				case EAGAIN:
+				case EAGAIN: // 当前socket 的发送队列满了，那么我们就暂时不要发送数据了直接退出发送任务
 					return -1;
 				}
 				force_close(ss,s, result);
@@ -404,6 +414,7 @@ send_list(struct socket_server *ss, struct socket *s, struct wb_list *list, stru
 	return -1;
 }
 
+// 判断 wb_list 是否未完成 
 static inline int
 list_uncomplete(struct wb_list *s) {
 	struct write_buffer *wb = s->head;
@@ -413,6 +424,7 @@ list_uncomplete(struct wb_list *s) {
 	return (void *)wb->ptr != wb->buffer;
 }
 
+// 当socket的发送队列为空是，将低优先级的发送数据升级到高优先级队列发送
 static void
 raise_uncomplete(struct socket * s) {
 	struct wb_list *low = &s->low;
@@ -440,26 +452,26 @@ raise_uncomplete(struct socket * s) {
  */
 static int
 send_buffer(struct socket_server *ss, struct socket *s, struct socket_message *result) {
-	assert(!list_uncomplete(&s->low));
+	assert(!list_uncomplete(&s->low));  //断言 低优先级的发送队列为空
 	// step 1
-	if (send_list(ss,s,&s->high,result) == SOCKET_CLOSE) {
+	if (send_list(ss,s,&s->high,result) == SOCKET_CLOSE) { // 将高优先级发送数据全部发送，除非塞满发送队列否则会清空队列
 		return SOCKET_CLOSE;
 	}
-	if (s->high.head == NULL) {
+	if (s->high.head == NULL) {  // 高优先急数据清空了
 		// step 2
-		if (s->low.head != NULL) {
-			if (send_list(ss,s,&s->low,result) == SOCKET_CLOSE) {
+		if (s->low.head != NULL) {  //低优先级还有数据
+			if (send_list(ss,s,&s->low,result) == SOCKET_CLOSE) { //尝试将低优先级队列数据全部发送了，除非塞满发送队列
 				return SOCKET_CLOSE;
 			}
 			// step 3
-			if (list_uncomplete(&s->low)) {
+			if (list_uncomplete(&s->low)) {  //如果低优先级 未发送完毕，则将升级一个低优先级消息数据成高优先急
 				raise_uncomplete(s);
 			}
 		} else {
 			// step 4
-			sp_write(ss->event_fd, s->fd, s, false);
+			sp_write(ss->event_fd, s->fd, s, false); //如果数据发送完毕了，则清理掉可写状态的监听
 
-			if (s->type == SOCKET_TYPE_HALFCLOSE) {
+			if (s->type == SOCKET_TYPE_HALFCLOSE) {  // 如果当前socket 本地已经发起了close 操作，数据发送完了我们就断开连接
 				force_close(ss, s, result);
 				return SOCKET_CLOSE;
 			}
@@ -469,6 +481,8 @@ send_buffer(struct socket_server *ss, struct socket *s, struct socket_message *r
 	return -1;
 }
 
+
+//在 发送数据列表中插入发送数据
 static int
 append_sendbuffer_(struct wb_list *s, struct request_send * request, int n) {
 	struct write_buffer * buf = MALLOC(sizeof(*buf));
@@ -487,16 +501,19 @@ append_sendbuffer_(struct wb_list *s, struct request_send * request, int n) {
 	return buf->sz;
 }
 
+// 往发送数据高优先急队列增加数据
 static inline void
 append_sendbuffer(struct socket *s, struct request_send * request, int n) {
 	s->wb_size += append_sendbuffer_(&s->high, request, n);
 }
 
+// 往发送数据低优先急队列增加数据
 static inline void
 append_sendbuffer_low(struct socket *s, struct request_send * request) {
 	s->wb_size += append_sendbuffer_(&s->low, request, 0);
 }
 
+// 判断 socket 的发送队列为空
 static inline int
 send_buffer_empty(struct socket *s) {
 	return (s->high.head == NULL && s->low.head == NULL);
@@ -508,6 +525,10 @@ send_buffer_empty(struct socket *s) {
 	If socket buffer is empty, write to fd directly.
 		If write a part, append the rest part to high list. (Even priority is PRIORITY_LOW)
 	Else append package to high (PRIORITY_HIGH) or low (PRIORITY_LOW) list.
+
+	发送消息，流程
+	1、如果socket本身没有未发送完成的数据则直接将buffer 发送了
+	2、如果 直接发送buffer 不完则将buffer存入发送队列，并增加监听可写状态
  */
 static int
 send_socket(struct socket_server *ss, struct request_send * request, struct socket_message *result, int priority) {
@@ -550,6 +571,8 @@ send_socket(struct socket_server *ss, struct request_send * request, struct sock
 	return -1;
 }
 
+// 这里的不是 socket 那个监听端口等待连接的操作，因为到这个阶段的时候的 套接字已经处理了bind 和 listen 操作，做好了监听工作
+// 这里只是简单的将 socket 和我们的管理器关联起来
 static int
 listen_socket(struct socket_server *ss, struct request_listen * request, struct socket_message *result) {
 	int id = request->id;
@@ -571,6 +594,8 @@ _failed:
 	return SOCKET_ERROR;
 }
 
+
+// 尝试关闭 socket，如果socket 数据发送完了直接关闭，如果未发送完成则需要等数据真正发送完了才会真实关闭
 static int
 close_socket(struct socket_server *ss, struct request_close *request, struct socket_message *result) {
 	int id = request->id;
@@ -582,22 +607,25 @@ close_socket(struct socket_server *ss, struct request_close *request, struct soc
 		result->data = NULL;
 		return SOCKET_CLOSE;
 	}
-	if (!send_buffer_empty(s)) { 
+	if (!send_buffer_empty(s)) { //如果socket还存着未发送完的数据则先将数据发送完
 		int type = send_buffer(ss,s,result);
-		if (type != -1)
+		if (type != -1) // 消息发送失败，直接返回
 			return type;
 	}
-	if (send_buffer_empty(s)) {
+	if (send_buffer_empty(s)) {  //已经发送完毕，则直接关闭
 		force_close(ss,s,result);
 		result->id = id;
 		result->opaque = request->opaque;
 		return SOCKET_CLOSE;
 	}
-	s->type = SOCKET_TYPE_HALFCLOSE;
+	s->type = SOCKET_TYPE_HALFCLOSE; // 还有数据未发送完毕，则先标记成半关闭状态，等数据发送完了我们再彻底关闭
 
 	return -1;
 }
 
+
+// 这里的绑定操作不是 socket 那个绑定端口的操作
+// 这里是代表将 socket 绑定到我们的网络管理器中，并增加读事件的监听,并且将socket设置成非阻塞的状态
 static int
 bind_socket(struct socket_server *ss, struct request_bind *request, struct socket_message *result) {
 	int id = request->id;
@@ -631,11 +659,12 @@ start_socket(struct socket_server *ss, struct request_start *request, struct soc
 			s->type = SOCKET_TYPE_INVALID;
 			return SOCKET_ERROR;
 		}
+		// 如果socket 原来是新 accpet 的则转变成 连接成功状态，如果原先是 新建立的监听socket则转变成 监听连接成功状态
 		s->type = (s->type == SOCKET_TYPE_PACCEPT) ? SOCKET_TYPE_CONNECTED : SOCKET_TYPE_LISTEN;
 		s->opaque = request->opaque;
 		result->data = "start";
 		return SOCKET_OPEN;
-	} else if (s->type == SOCKET_TYPE_CONNECTED) {
+	} else if (s->type == SOCKET_TYPE_CONNECTED) { // 本来就是连接成功的socket 则直接啥也不用做等待数据传输就行了
 		s->opaque = request->opaque;
 		result->data = "transfer";
 		return SOCKET_OPEN;
@@ -643,6 +672,8 @@ start_socket(struct socket_server *ss, struct request_start *request, struct soc
 	return -1;
 }
 
+
+// 设置socket的 属性
 static void
 setopt_socket(struct socket_server *ss, struct request_setopt *request) {
 	int id = request->id;
@@ -654,6 +685,8 @@ setopt_socket(struct socket_server *ss, struct request_setopt *request) {
 	setsockopt(s->fd, IPPROTO_TCP, request->what, &v, sizeof(v));
 }
 
+
+// 阻塞模式读取 管道中的数据
 static void
 block_readpipe(int pipefd, void *buffer, int sz) {
 	for (;;) {
@@ -670,6 +703,7 @@ block_readpipe(int pipefd, void *buffer, int sz) {
 	}
 }
 
+// 判断管道中是否有 命令可读
 static int
 has_cmd(struct socket_server *ss) {
 	struct timeval tv = {0,0};
@@ -684,6 +718,8 @@ has_cmd(struct socket_server *ss) {
 	return 0;
 }
 
+
+// 阻塞式读取管道中的命令，并处理
 // return type
 static int
 ctrl_cmd(struct socket_server *ss, struct socket_message *result) {
@@ -728,6 +764,7 @@ ctrl_cmd(struct socket_server *ss, struct socket_message *result) {
 	return -1;
 }
 
+// 从 socket中尝试读取数据，如果读取数据失败则返回 -1  如果读取到了则返回 SOCKET_DATA = 0
 // return -1 (ignore) when error
 static int
 forward_message(struct socket_server *ss, struct socket *s, struct socket_message * result) {
@@ -754,16 +791,16 @@ forward_message(struct socket_server *ss, struct socket *s, struct socket_messag
 		force_close(ss, s, result);
 		return SOCKET_CLOSE;
 	}
-
+	// 发起了关闭操作的socket 不再接收新数据
 	if (s->type == SOCKET_TYPE_HALFCLOSE) {
 		// discard recv data
 		FREE(buffer);
 		return -1;
 	}
 
-	if (n == sz) {
+	if (n == sz) { //读满buffer则增加 下次的buffer size
 		s->size *= 2;
-	} else if (sz > MIN_READ_BUFFER && n*2 < sz) {
+	} else if (sz > MIN_READ_BUFFER && n*2 < sz) { //当可读数据减少了则减小 下次读取的buffer size
 		s->size /= 2;
 	}
 
@@ -777,19 +814,22 @@ forward_message(struct socket_server *ss, struct socket *s, struct socket_messag
 static int
 report_connect(struct socket_server *ss, struct socket *s, struct socket_message *result) {
 	int error;
-	socklen_t len = sizeof(error);  
+	socklen_t len = sizeof(error);
+	// 读取socket 的错误码，如果读取失败或者socket存在错误则关闭socket
 	int code = getsockopt(s->fd, SOL_SOCKET, SO_ERROR, &error, &len);  
 	if (code < 0 || error) {  
 		force_close(ss,s, result);
 		return SOCKET_ERROR;
 	} else {
-		s->type = SOCKET_TYPE_CONNECTED;
+		s->type = SOCKET_TYPE_CONNECTED; // 标记成连接成功状态
 		result->opaque = s->opaque;
 		result->id = s->id;
 		result->ud = 0;
-		if (send_buffer_empty(s)) {
+		if (send_buffer_empty(s)) { //如果存在要发送数据则监听可写状态
 			sp_write(ss->event_fd, s->fd, s, false);
 		}
+
+		// 读取连接对方的 地址
 		union sockaddr_all u;
 		socklen_t slen = sizeof(u);
 		if (getpeername(s->fd, &u.s, &slen) == 0) {
@@ -813,8 +853,8 @@ report_accept(struct socket_server *ss, struct socket *s, struct socket_message 
 	if (client_fd < 0) {
 		return 0;
 	}
-	int id = reserve_id(ss);
-	if (id < 0) {
+	int id = reserve_id(ss);// 请求分配一个管理id
+	if (id < 0) { // 如果网络层 管理的连接满了则拒绝新连接
 		close(client_fd);
 		return 0;
 	}
@@ -857,13 +897,17 @@ clear_closed_event(struct socket_server *ss, struct socket_message * result, int
 }
 
 // return type
+//  函数有两个工作
+// 1、 在没有事件未处理完的情况下回读取业务发起的网络 操作命令
+// 2、询问内核是否有新的可处理网络事件操作，如果有则处理事件
+//  返回值为 操作网络事件的 结果
 int 
 socket_server_poll(struct socket_server *ss, struct socket_message * result, int * more) {
 	for (;;) {
 		if (ss->checkctrl) {
 			if (has_cmd(ss)) {
 				int type = ctrl_cmd(ss, result);
-				if (type != -1) {
+				if (type != -1) { // 读取操作命令异常
 					clear_closed_event(ss, result, type);
 					return type;
 				} else
@@ -872,6 +916,7 @@ socket_server_poll(struct socket_server *ss, struct socket_message * result, int
 				ss->checkctrl = 0;
 			}
 		}
+		//当前获取到的时间都处理完了则等待新的时间，并标记可以处理其他的网络操作事件了
 		if (ss->event_index == ss->event_n) {
 			ss->event_n = sp_wait(ss->event_fd, ss->ev, MAX_EVENT);
 			ss->checkctrl = 1;
@@ -891,9 +936,9 @@ socket_server_poll(struct socket_server *ss, struct socket_message * result, int
 			continue;
 		}
 		switch (s->type) {
-		case SOCKET_TYPE_CONNECTING:
+		case SOCKET_TYPE_CONNECTING: //连接中的 socket 收到时间代表连接状态有变化，要么连接成功，要么连接失败了
 			return report_connect(ss, s, result);
-		case SOCKET_TYPE_LISTEN:
+		case SOCKET_TYPE_LISTEN: // 监听状态的socket 有状态则代表 有新连接了
 			if (report_accept(ss, s, result)) {
 				return SOCKET_ACCEPT;
 			} 
@@ -904,16 +949,16 @@ socket_server_poll(struct socket_server *ss, struct socket_message * result, int
 		default:
 			if (e->write) {
 				int type = send_buffer(ss, s, result);
-				if (type == -1)
+				if (type == -1) // 发送正常
 					break;
-				clear_closed_event(ss, result, type);
+				clear_closed_event(ss, result, type); //发送异常了 清理掉
 				return type;
 			}
 			if (e->read) {
 				int type = forward_message(ss, s, result);
-				if (type == -1)
+				if (type == -1) // 接收正常
 					break;
-				clear_closed_event(ss, result, type);
+				clear_closed_event(ss, result, type); // 接收数据异常，清理掉
 				return type;
 			}
 			break;
@@ -921,6 +966,7 @@ socket_server_poll(struct socket_server *ss, struct socket_message * result, int
 	}
 }
 
+// 向网络模块发送操作请求
 static void
 send_request(struct socket_server *ss, struct request_package *request, char type, int len) {
 	request->header[6] = (uint8_t)type;
@@ -938,6 +984,7 @@ send_request(struct socket_server *ss, struct request_package *request, char typ
 	}
 }
 
+//
 static int
 open_request(struct socket_server *ss, struct request_package *req, uintptr_t opaque, const char *addr, int port) {
 	int len = strlen(addr);
@@ -1077,6 +1124,9 @@ socket_server_start(struct socket_server *ss, uintptr_t opaque, int id) {
 	send_request(ss, &request, 'S', sizeof(request.u.start));
 }
 
+
+// 设置socket 属性，关闭  Nagle ，大概意思是 socket管道上的数据包都会立即发送，不会走优化算法进行一些小包合并的处理
+// 这样做的好处是 减少了消息通信的延迟新，但是增加了通信频率的代价，不过在目前网络高速的情况这些都是可以接受的
 void
 socket_server_nodelay(struct socket_server *ss, int id) {
 	struct request_package request;

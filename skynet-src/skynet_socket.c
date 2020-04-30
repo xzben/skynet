@@ -30,6 +30,8 @@ skynet_socket_free() {
 }
 
 // mainloop thread
+// socket 的所属服务发送 socket 发生的事件 消息
+// padding  事件操作的结果数据是直接引用对应的buffer ，还是将其 copy 带message的尾部，目前只有 新连接的socket 将连接对方的地址信息padding 到message 的尾部
 static void
 forward_message(int type, bool padding, struct socket_message * result) {
 	struct skynet_socket_message *sm;
@@ -74,7 +76,7 @@ skynet_socket_poll() {
 	int more = 1;
 	int type = socket_server_poll(ss, &result, &more);
 	switch (type) {
-	case SOCKET_EXIT:
+	case SOCKET_EXIT:  //退出网络模块循环
 		return 0;
 	case SOCKET_DATA:
 		forward_message(SKYNET_SOCKET_TYPE_DATA, false, &result);

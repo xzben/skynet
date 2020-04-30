@@ -3,12 +3,13 @@
 
 #include <stdint.h>
 
-#define SOCKET_DATA 0
-#define SOCKET_CLOSE 1
-#define SOCKET_OPEN 2
+// 网络事件的处理结果类型 
+#define SOCKET_DATA 0		 // 从网络层读取到了数据
+#define SOCKET_CLOSE 1		 // socket close
+#define SOCKET_OPEN 2		
 #define SOCKET_ACCEPT 3
 #define SOCKET_ERROR 4
-#define SOCKET_EXIT 5
+#define SOCKET_EXIT 5		 // 收到关闭网络处理的命令，关闭网络事件轮训线程
 
 struct socket_server;
 
